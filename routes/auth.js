@@ -1,92 +1,94 @@
 const express = require("express");
 const router = express.Router();
 const bcrypt = require("bcryptjs");
-const db = require("../models/db");
+const jwt = require("jsonwebtoken");
+const pool = require("../models/db");
+const authenticate = require("../middleware/auth");
 
-// 🔐 Inscription
+const JWT_SECRET = process.env.JWT_SECRET || "dev-secret";
+
+// ✅ Enregistrement utilisateur
 router.post("/register", async (req, res) => {
   const { email, password } = req.body;
 
-  if (!email || !password) {
-    return res.status(400).json({ message: "Email et mot de passe requis." });
-  }
+  if (!email || !password)
+    return res.status(400).json({ error: "Champs requis" });
 
   try {
-    // Vérifie si l'utilisateur existe déjà
-    const existingUser = await db.query('SELECT * FROM "Users" WHERE email = $1', [email]);
-    if (existingUser.rows.length > 0) {
-      return res.status(409).json({ message: "Email déjà utilisé." });
-    }
-
-    const hashedPassword = await bcrypt.hash(password, 10);
-    const result = await db.query(
-      'INSERT INTO "Users" (email, password) VALUES ($1, $2) RETURNING id',
-      [email, hashedPassword]
+    const hashed = await bcrypt.hash(password, 10);
+    const result = await pool.query(
+      `INSERT INTO "Users"(email, "passwordHash") VALUES ($1, $2) RETURNING id`,
+      [email, hashed]
     );
 
-    res.status(201).json({ message: "Compte créé.", userId: result.rows[0].id });
+    const token = jwt.sign({ userId: result.rows[0].id }, JWT_SECRET, {
+      expiresIn: "12h",
+    });
+
+    res.json({ token });
   } catch (err) {
-    console.error("Erreur inscription :", err);
-    res.status(500).json({ message: "Erreur serveur." });
+    console.error("Erreur inscription :", err.message);
+    res.status(500).json({ error: "Erreur serveur" });
   }
 });
 
-// 🔐 Connexion
+// ✅ Connexion utilisateur
 router.post("/login", async (req, res) => {
   const { email, password } = req.body;
 
-  if (!email || !password) {
-    return res.status(400).json({ message: "Email et mot de passe requis." });
-  }
-
   try {
-    const userResult = await db.query('SELECT * FROM "Users" WHERE email = $1', [email]);
-    const user = userResult.rows[0];
+    const result = await pool.query(
+      `SELECT * FROM "Users" WHERE email = $1`,
+      [email]
+    );
 
-    if (!user || !user.password) {
-      return res.status(401).json({ message: "Email ou mot de passe incorrect." });
-    }
+    if (result.rows.length === 0)
+      return res.status(401).json({ error: "Identifiants invalides" });
 
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) {
-      return res.status(401).json({ message: "Email ou mot de passe incorrect." });
-    }
+    const user = result.rows[0];
+    const match = await bcrypt.compare(password, user.passwordHash);
 
-    res.status(200).json({ message: "Connexion réussie.", userId: user.id });
+    if (!match)
+      return res.status(401).json({ error: "Mot de passe incorrect" });
+
+    const token = jwt.sign({ userId: user.id }, JWT_SECRET, {
+      expiresIn: "12h",
+    });
+
+    res.json({ token });
   } catch (err) {
-    console.error("Erreur connexion :", err);
-    res.status(500).json({ message: "Erreur serveur." });
+    console.error("Erreur login :", err.message);
+    res.status(500).json({ error: "Erreur serveur" });
   }
 });
 
-// 🔐 Changement de mot de passe
-router.post("/change-password", async (req, res) => {
-  const { userId, oldPassword, newPassword } = req.body;
-
-  if (!userId || !oldPassword || !newPassword) {
-    return res.status(400).json({ message: "Tous les champs sont requis." });
-  }
+// ✅ Changement de mot de passe
+router.post("/change-password", authenticate, async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+  const userId = req.userId;
 
   try {
-    const userResult = await db.query('SELECT * FROM "Users" WHERE id = $1', [userId]);
-    const user = userResult.rows[0];
+    const result = await pool.query(
+      `SELECT * FROM "Users" WHERE id = $1`,
+      [userId]
+    );
 
-    if (!user) {
-      return res.status(404).json({ message: "Utilisateur introuvable." });
-    }
+    const user = result.rows[0];
+    const match = await bcrypt.compare(currentPassword, user.passwordHash);
 
-    const isMatch = await bcrypt.compare(oldPassword, user.password);
-    if (!isMatch) {
-      return res.status(401).json({ message: "Ancien mot de passe incorrect." });
-    }
+    if (!match)
+      return res.status(403).json({ error: "Mot de passe actuel incorrect" });
 
-    const hashedNewPassword = await bcrypt.hash(newPassword, 10);
-    await db.query('UPDATE "Users" SET password = $1 WHERE id = $2', [hashedNewPassword, userId]);
+    const hashed = await bcrypt.hash(newPassword, 10);
+    await pool.query(
+      `UPDATE "Users" SET "passwordHash" = $1 WHERE id = $2`,
+      [hashed, userId]
+    );
 
-    res.status(200).json({ message: "Mot de passe mis à jour." });
+    res.json({ message: "Mot de passe mis à jour" });
   } catch (err) {
-    console.error("Erreur changement mot de passe :", err);
-    res.status(500).json({ message: "Erreur serveur." });
+    console.error("Erreur changement mdp :", err.message);
+    res.status(500).json({ error: "Erreur serveur" });
   }
 });
 
