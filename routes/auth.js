@@ -1,56 +1,93 @@
 const express = require("express");
-const bcrypt = require("bcryptjs");
-const jwt = require("jsonwebtoken");
-const db = require('../models/db');
-const auth = require("../middleware/auth");
 const router = express.Router();
+const bcrypt = require("bcryptjs");
+const db = require("../models/db");
 
-// Register
+// 🔐 Inscription
 router.post("/register", async (req, res) => {
   const { email, password } = req.body;
-  const hash = await bcrypt.hash(password, 10);
+
+  if (!email || !password) {
+    return res.status(400).json({ message: "Email et mot de passe requis." });
+  }
+
   try {
+    // Vérifie si l'utilisateur existe déjà
+    const existingUser = await db.query('SELECT * FROM "Users" WHERE email = $1', [email]);
+    if (existingUser.rows.length > 0) {
+      return res.status(409).json({ message: "Email déjà utilisé." });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
     const result = await db.query(
-      `INSERT INTO "Users"(email, password_hash, created_at)
-       VALUES ($1, $2, NOW())
-       RETURNING id`,
-      [email, hash]
+      'INSERT INTO "Users" (email, password) VALUES ($1, $2) RETURNING id',
+      [email, hashedPassword]
     );
-    res.status(201).json({ userId: result.rows[0].id });
-  } catch (e) {
-    res.status(400).json({ error: "Email déjà utilisé" });
+
+    res.status(201).json({ message: "Compte créé.", userId: result.rows[0].id });
+  } catch (err) {
+    console.error("Erreur inscription :", err);
+    res.status(500).json({ message: "Erreur serveur." });
   }
 });
 
-// Login
+// 🔐 Connexion
 router.post("/login", async (req, res) => {
   const { email, password } = req.body;
-  const result = await db.query(`SELECT * FROM "Users" WHERE email = $1`, [email]);
-  const user = result.rows[0];
-  if (!user) return res.status(401).json({ error: "Utilisateur inconnu" });
 
-  const match = await bcrypt.compare(password, user.password_hash);
-  if (!match) return res.status(401).json({ error: "Mot de passe incorrect" });
+  if (!email || !password) {
+    return res.status(400).json({ message: "Email et mot de passe requis." });
+  }
 
-  const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET, { expiresIn: "7d" });
-  res.json({ token });
+  try {
+    const userResult = await db.query('SELECT * FROM "Users" WHERE email = $1', [email]);
+    const user = userResult.rows[0];
+
+    if (!user || !user.password) {
+      return res.status(401).json({ message: "Email ou mot de passe incorrect." });
+    }
+
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      return res.status(401).json({ message: "Email ou mot de passe incorrect." });
+    }
+
+    res.status(200).json({ message: "Connexion réussie.", userId: user.id });
+  } catch (err) {
+    console.error("Erreur connexion :", err);
+    res.status(500).json({ message: "Erreur serveur." });
+  }
 });
 
-// 🔐 Change password
-router.post("/change-password", auth, async (req, res) => {
-  const { currentPassword, newPassword } = req.body;
-  const userRes = await db.query(`SELECT * FROM "Users" WHERE id = $1`, [req.userId]);
-  const user = userRes.rows[0];
+// 🔐 Changement de mot de passe
+router.post("/change-password", async (req, res) => {
+  const { userId, oldPassword, newPassword } = req.body;
 
-  if (!user) return res.status(404).json({ error: "Utilisateur introuvable" });
+  if (!userId || !oldPassword || !newPassword) {
+    return res.status(400).json({ message: "Tous les champs sont requis." });
+  }
 
-  const valid = await bcrypt.compare(currentPassword, user.password_hash);
-  if (!valid) return res.status(401).json({ error: "Ancien mot de passe incorrect" });
+  try {
+    const userResult = await db.query('SELECT * FROM "Users" WHERE id = $1', [userId]);
+    const user = userResult.rows[0];
 
-  const newHash = await bcrypt.hash(newPassword, 10);
-  await db.query(`UPDATE "Users" SET password_hash = $1 WHERE id = $2`, [newHash, req.userId]);
+    if (!user) {
+      return res.status(404).json({ message: "Utilisateur introuvable." });
+    }
 
-  res.json({ message: "Mot de passe mis à jour" });
+    const isMatch = await bcrypt.compare(oldPassword, user.password);
+    if (!isMatch) {
+      return res.status(401).json({ message: "Ancien mot de passe incorrect." });
+    }
+
+    const hashedNewPassword = await bcrypt.hash(newPassword, 10);
+    await db.query('UPDATE "Users" SET password = $1 WHERE id = $2', [hashedNewPassword, userId]);
+
+    res.status(200).json({ message: "Mot de passe mis à jour." });
+  } catch (err) {
+    console.error("Erreur changement mot de passe :", err);
+    res.status(500).json({ message: "Erreur serveur." });
+  }
 });
 
 module.exports = router;
