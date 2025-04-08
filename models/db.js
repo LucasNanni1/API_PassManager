@@ -1,6 +1,10 @@
-const { Sequelize } = require('sequelize');
-const sequelize = new Sequelize(process.env.DATABASE_URL, {
-  dialect: process.env.DATABASE_URL.includes('sqlite') ? 'sqlite' : 'postgres',
-  logging: false
+const { Pool } = require("pg");
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false }
 });
-module.exports = sequelize;
+
+module.exports = {
+  query: (text, params) => pool.query(text, params),
+};

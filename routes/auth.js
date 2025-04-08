@@ -1,31 +1,56 @@
-const express = require('express');
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
-const User = require('../models/user');
-const sequelize = require('../models/db');
+const express = require("express");
+const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
+const db = require("../db");
+const auth = require("../middleware/auth");
 const router = express.Router();
 
-sequelize.sync();
-
-router.post('/register', async (req, res) => {
+// Register
+router.post("/register", async (req, res) => {
   const { email, password } = req.body;
-  const passwordHash = await bcrypt.hash(password, 10);
+  const hash = await bcrypt.hash(password, 10);
   try {
-    const user = await User.create({ email, passwordHash });
-    res.status(201).json({ message: 'Utilisateur créé' });
-  } catch {
-    res.status(400).json({ error: 'Email déjà utilisé' });
+    const result = await db.query(
+      `INSERT INTO "Users"(email, password_hash, created_at)
+       VALUES ($1, $2, NOW())
+       RETURNING id`,
+      [email, hash]
+    );
+    res.status(201).json({ userId: result.rows[0].id });
+  } catch (e) {
+    res.status(400).json({ error: "Email déjà utilisé" });
   }
 });
 
-router.post('/login', async (req, res) => {
+// Login
+router.post("/login", async (req, res) => {
   const { email, password } = req.body;
-  const user = await User.findOne({ where: { email } });
-  if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
-    return res.status(401).json({ error: 'Identifiants invalides' });
-  }
-  const token = jwt.sign({ id: user.id, email: user.email }, process.env.JWT_SECRET);
+  const result = await db.query(`SELECT * FROM "Users" WHERE email = $1`, [email]);
+  const user = result.rows[0];
+  if (!user) return res.status(401).json({ error: "Utilisateur inconnu" });
+
+  const match = await bcrypt.compare(password, user.password_hash);
+  if (!match) return res.status(401).json({ error: "Mot de passe incorrect" });
+
+  const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET, { expiresIn: "7d" });
   res.json({ token });
+});
+
+// 🔐 Change password
+router.post("/change-password", auth, async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+  const userRes = await db.query(`SELECT * FROM "Users" WHERE id = $1`, [req.userId]);
+  const user = userRes.rows[0];
+
+  if (!user) return res.status(404).json({ error: "Utilisateur introuvable" });
+
+  const valid = await bcrypt.compare(currentPassword, user.password_hash);
+  if (!valid) return res.status(401).json({ error: "Ancien mot de passe incorrect" });
+
+  const newHash = await bcrypt.hash(newPassword, 10);
+  await db.query(`UPDATE "Users" SET password_hash = $1 WHERE id = $2`, [newHash, req.userId]);
+
+  res.json({ message: "Mot de passe mis à jour" });
 });
 
 module.exports = router;

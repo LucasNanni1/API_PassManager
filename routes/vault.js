@@ -1,31 +1,32 @@
-const express = require('express');
-const { DataTypes } = require('sequelize');
-const sequelize = require('../models/db');
+const express = require("express");
+const db = require("../db");
+const auth = require("../middleware/auth");
 const router = express.Router();
 
-const Vault = sequelize.define('Vault', {
-  userId: DataTypes.INTEGER,
-  site: DataTypes.STRING,
-  login: DataTypes.STRING,
-  password: DataTypes.TEXT
+// GET all
+router.get("/", auth, async (req, res) => {
+  const result = await db.query(`SELECT * FROM "Vaults" WHERE "userId" = $1`, [req.userId]);
+  res.json(result.rows);
 });
 
-Vault.sync();
-
-router.get('/', async (req, res) => {
-  const entries = await Vault.findAll({ where: { userId: req.user.id } });
-  res.json(entries);
-});
-
-router.post('/', async (req, res) => {
+// POST
+router.post("/", auth, async (req, res) => {
   const { site, login, password } = req.body;
-  const entry = await Vault.create({ userId: req.user.id, site, login, password });
-  res.status(201).json(entry);
+  await db.query(
+    `INSERT INTO "Vaults" ("userId", site, login, password)
+     VALUES ($1, $2, $3, $4)`,
+    [req.userId, site, login, password]
+  );
+  res.status(201).json({ message: "Ajouté" });
 });
 
-router.delete('/:id', async (req, res) => {
-  await Vault.destroy({ where: { id: req.params.id, userId: req.user.id } });
-  res.json({ message: 'Supprimé' });
+// DELETE
+router.delete("/:id", auth, async (req, res) => {
+  await db.query(`DELETE FROM "Vaults" WHERE id = $1 AND "userId" = $2`, [
+    req.params.id,
+    req.userId,
+  ]);
+  res.json({ message: "Supprimé" });
 });
 
 module.exports = router;
