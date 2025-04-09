@@ -26,10 +26,14 @@ router.post("/", authenticate, async (req, res) => {
   }
 
   try {
+    const now = new Date();
+
     const result = await pool.query(
-      `INSERT INTO "Vaults"("userId", site, login, password) VALUES ($1, $2, $3, $4) RETURNING id`,
-      [req.userId, site, login, password]
+      `INSERT INTO "Vaults"("userId", site, login, password, "createdAt", "updatedAt")
+       VALUES ($1, $2, $3, $4, $5, $5) RETURNING id`,
+      [req.userId, site, login, password, now]
     );
+
     res.json({ id: result.rows[0].id });
   } catch (err) {
     console.error("Erreur ajout vault :", err.message);
