@@ -1,0 +1,14 @@
+name: Keep API Render awake
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'  # Toutes les 15 minutes
+  workflow_dispatch:        # Permet de lancer manuellement aussi
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send ping to API
+        run: curl -s https://api-passmanager.onrender.com/wake
+
