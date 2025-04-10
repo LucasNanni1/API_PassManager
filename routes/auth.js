@@ -115,7 +115,7 @@ router.post("/forgot-password", async (req, res) => {
       WHERE id = $2
     `, [token, userId]);
 
-    const resetLink = `https://reset-password-xxxx.onrender.com/reset-password.html?token=${token}`;
+    const resetLink = `https://reset-password-65e8.onrender.com/reset-password.html?token=${token}`;
 
     const transporter = nodemailer.createTransport({
       service: "gmail",
