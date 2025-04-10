@@ -12,9 +12,7 @@ const JWT_SECRET = process.env.JWT_SECRET || "dev-secret";
 // ✅ Enregistrement utilisateur
 router.post("/register", async (req, res) => {
   const { email, password } = req.body;
-
-  if (!email || !password)
-    return res.status(400).json({ error: "Champs requis" });
+  if (!email || !password) return res.status(400).json({ error: "Champs requis" });
 
   try {
     const hashed = await bcrypt.hash(password, 10);
@@ -24,10 +22,7 @@ router.post("/register", async (req, res) => {
       [email, hashed]
     );
 
-    const token = jwt.sign({ userId: result.rows[0].id }, JWT_SECRET, {
-      expiresIn: "12h",
-    });
-
+    const token = jwt.sign({ userId: result.rows[0].id }, JWT_SECRET, { expiresIn: "12h" });
     res.json({ token });
   } catch (err) {
     console.error("Erreur inscription :", err.message);
@@ -40,24 +35,14 @@ router.post("/login", async (req, res) => {
   const { email, password } = req.body;
 
   try {
-    const result = await pool.query(
-      `SELECT * FROM "Users" WHERE email = $1`,
-      [email]
-    );
-
-    if (result.rows.length === 0)
-      return res.status(401).json({ error: "Identifiants invalides" });
+    const result = await pool.query(`SELECT * FROM "Users" WHERE email = $1`, [email]);
+    if (result.rows.length === 0) return res.status(401).json({ error: "Identifiants invalides" });
 
     const user = result.rows[0];
     const match = await bcrypt.compare(password, user.passwordHash);
+    if (!match) return res.status(401).json({ error: "Mot de passe incorrect" });
 
-    if (!match)
-      return res.status(401).json({ error: "Mot de passe incorrect" });
-
-    const token = jwt.sign({ userId: user.id }, JWT_SECRET, {
-      expiresIn: "12h",
-    });
-
+    const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: "12h" });
     res.json({ token });
   } catch (err) {
     console.error("Erreur login :", err.message);
@@ -71,16 +56,10 @@ router.post("/change-password", authenticate, async (req, res) => {
   const userId = req.userId;
 
   try {
-    const result = await pool.query(
-      `SELECT * FROM "Users" WHERE id = $1`,
-      [userId]
-    );
-
+    const result = await pool.query(`SELECT * FROM "Users" WHERE id = $1`, [userId]);
     const user = result.rows[0];
     const match = await bcrypt.compare(currentPassword, user.passwordHash);
-
-    if (!match)
-      return res.status(403).json({ error: "Mot de passe actuel incorrect" });
+    if (!match) return res.status(403).json({ error: "Mot de passe actuel incorrect" });
 
     const hashed = await bcrypt.hash(newPassword, 10);
     await pool.query(
@@ -103,7 +82,7 @@ router.post("/forgot-password", async (req, res) => {
   try {
     const result = await pool.query(`SELECT id FROM "Users" WHERE email = $1`, [email]);
     if (result.rows.length === 0) {
-      return res.status(200).json({ message: "Si cet email existe, un lien a été envoyé." });
+      return res.status(404).json({ error: "Aucun compte trouvé pour cet email." });
     }
 
     const userId = result.rows[0].id;
@@ -129,17 +108,17 @@ router.post("/forgot-password", async (req, res) => {
       from: process.env.SMTP_EMAIL,
       to: email,
       subject: "Réinitialisation de mot de passe",
-      html: `<p>Clique ici pour réinitialiser ton mot de passe :</p><a href="${resetLink}">${resetLink}</a>`
+      html: `<p>Voici le lien pour réinitialiser ton mot de passe :</p><a href="${resetLink}">${resetLink}</a>`
     });
 
-    res.json({ message: "Lien envoyé." });
+    res.json({ message: "📬 Email envoyé ! Consultez votre boîte mail." });
   } catch (err) {
     console.error("Erreur forgot-password :", err.message);
     res.status(500).json({ error: "Erreur serveur" });
   }
 });
 
-// ✅ Réinitialisation du mot de passe via lien
+// ✅ Réinitialisation du mot de passe via le lien
 router.post("/reset-password", async (req, res) => {
   const { token, newPassword } = req.body;
   if (!token || !newPassword) return res.status(400).json({ error: "Champs requis" });
